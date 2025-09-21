@@ -1,1 +1,215 @@
+import pygame
+import sys
+import time
+import json
+import os
 
+# Инициализация Pygame
+pygame.init()
+
+# Настройки окна
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Экологический кликер")
+
+# Цвета
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+
+# Звуковые эффекты
+CLICK_SOUND = pygame.mixer.Sound('click.wav')
+UPGRADE_SOUND = pygame.mixer.Sound('upgrade.wav')
+
+# Глобальные переменные
+plastic = 0
+click_power = 1
+auto_collect = 0
+current_level = 0
+game_over = False
+paused = False
+clock = pygame.time.Clock()  # Создаем clock здесь
+
+# Цены на улучшения
+UPGRADE_PRICES = [
+    {"name": "Мешок", "price": 10, "power": 1, "bought": False},
+    {"name": "Корзина", "price": 50, "power": 5, "bought": False},
+    {"name": "Контейнер", "price": 200, "power": 10, "bought": False},
+    {"name": "Машина", "price": 500, "power": 25, "bought": False},
+    {"name": "Завод", "price": 1000, "power": 50, "bought": False}
+]
+
+# Фон
+backgrounds = [
+    "beach_polluted.png",  # Загрязненный пляж
+    "beach_clean.png",     # Очищенный пляж
+    "forest.png",          # Лес
+    "ocean.png",           # Океан
+    "planet.png"           # Планета
+]
+
+# Сохранение прогресса
+SAVE_FILE = 'save.json'
+
+def load_save():
+    global plastic, click_power, auto_collect, current_level, UPGRADE_PRICES
+    if os.path.exists(SAVE_FILE):
+        with open(SAVE_FILE, 'r') as file:
+            data = json.load(file)
+            plastic = data['plastic']
+            click_power = data['click_power']
+            auto_collect = data['auto_collect']
+            current_level = data['current_level']
+            UPGRADE_PRICES = data['UPGRADE_PRICES']
+
+def save_game():
+    data = {
+        'plastic': plastic,
+        'click_power': click_power,
+        'auto_collect': auto_collect,
+        'current_level': current_level,
+        'UPGRADE_PRICES': UPGRADE_PRICES
+    }
+    with open(SAVE_FILE, 'w') as file:
+        json.dump(data, file)
+
+def draw_text(text, size, color, x, y):
+    font = pygame.font.Font(None, size)
+    text_surface = font.render(text, True, color)
+    screen.blit(text_surface, (x, y))
+
+def draw_background():
+    global current_level
+    if current_level < len(backgrounds):
+        background_image = pygame.image.load(backgrounds[current_level])
+        screen.blit(background_image, (0, 0))
+    else:
+        screen.fill(WHITE)
+
+def check_warnings():
+    global plastic, game_over
+    if plastic >= 30000:
+        game_over = True
+        return
+    if plastic >= 20000:
+        draw_text("Остановись!", 36, RED, 300, 300)
+    elif plastic >= 10000:
+        draw_text("Может, хватит?", 36, RED, 300, 300)
+    elif plastic >= 1000:
+        draw_text("Конец!", 36, BLACK, 300, 300)
+
+def reset_game():
+    global plastic, click_power, auto_collect, current_level, game_over
+    plastic = 0
+    click_power = 1
+    auto_collect = 0
+    current_level = 0
+    game_over = False
+    for upgrade in UPGRADE_PRICES:
+        upgrade['bought'] = False
+
+def draw_upgrades():
+    y_pos = 120
+    for i, upgrade in enumerate(UPGRADE_PRICES):
+        if not upgrade['bought']:
+            color = GREEN if plastic >= upgrade['price'] else BLACK
+            draw_text(f"{upgrade['name']} - {upgrade['price']}", 24, color, 10, y_pos)
+            y_pos += 30
+
+def handle_upgrade_purchase(mouse_pos):
+    y_pos = 120
+    for i, upgrade in enumerate(UPGRADE_PRICES):
+        if not upgrade['bought']:
+            rect = pygame.Rect(10, y_pos, 200, 30)
+            if rect.collidepoint(mouse_pos) and plastic >= upgrade['price']:
+                UPGRADE_SOUND.play()
+                plastic -= upgrade['price']
+                auto_collect += upgrade['power']
+                upgrade['bought'] = True
+            y_pos += 30
+
+def pause_menu():
+    global paused
+    draw_text("Игра приостановлена", 36, BLACK, 300, 200)
+    draw_text("Нажмите P для продолжения", 24, BLACK, 300, 250)
+    pygame.display.flip()
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYUP:
+                if event.key == pygame.K_p:
+                    waiting = False
+                    paused = False
+
+def main():
+    global plastic, click_power, auto_collect, current_level, game_over, paused
+    
+    # Создаем clock внутри main()
+    clock = pygame.time.Clock()
+    load_save()
+    
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                save_game()
+                running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if not game_over and not paused:
+                    CLICK_SOUND.play()
+                    plastic += click_power
+                    handle_upgrade_purchase(pygame.mouse.get_pos())
+            elif event.type == pygame.KEYUP:
+                if event.key == pygame.K_p:
+                    paused = not paused
+        
+        if not paused:
+            # Автоматическое собирание
+            if not game_over:
+                plastic += auto_collect
+            
+            # Проверка на перезапуск игры
+            if game_over:
+                reset_game()
+                game_over = False
+        
+        # Отрисовка
+        screen.fill(WHITE)
+        draw_background()
+        
+        # Отображение статистики
+        draw_text(f"Собрано пластика: {plastic}", 24, BLACK, 10, 10)
+        draw_text(f"Сила клика: {click_power}", 24, BLACK, 10, 40)
+
+
+        if current_level < len(UPGRADE_PRICES):
+            next_upgrade = UPGRADE_PRICES[current_level]
+        draw_text(f"Следующее улучшение: {next_upgrade['name']} ({next_upgrade['price']})", 24, BLACK, 10, 70)
+
+    # Отображение доступных улучшений
+    draw_upgrades()
+
+    # Проверка предупреждений
+    check_warnings()
+
+    # Обновление дисплея
+    pygame.display.flip()
+    
+    # Ограничение FPS
+    clock.tick(60)
+
+    # Сохранение прогресса
+    save_game()
+
+# Завершение работы
+pygame.quit()
+sys.exit()
+
+# Запуск игры
+if __name__ == "__main__":
+    main()
+        
